@@ -3,6 +3,8 @@
 import warnings
 
 import torch
+if torch.__version__ >= '1.8':
+    import torch_npu
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import ConvModule, normal_init
@@ -298,7 +300,7 @@ class YOLOV3Head(BaseDenseHead, BBoxTestMixin):
             return torch.zeros((0, 5)), torch.zeros((0, ))
 
         if rescale:
-            multi_lvl_bboxes /= multi_lvl_bboxes.new_tensor(scale_factor)
+            multi_lvl_bboxes = multi_lvl_bboxes / multi_lvl_bboxes.new_tensor(scale_factor)
 
         # In mmdet 2.x, the class_id for background is num_classes.
         # i.e., the last column.
@@ -309,14 +311,32 @@ class YOLOV3Head(BaseDenseHead, BBoxTestMixin):
 
         # Support exporting to onnx without nms
         if with_nms and cfg.get('nms', None) is not None:
-            det_bboxes, det_labels = multiclass_nms(
-                multi_lvl_bboxes,
-                multi_lvl_cls_scores,
-                cfg.score_thr,
-                cfg.nms,
-                cfg.max_per_img,
-                score_factors=multi_lvl_conf_scores)
-            return det_bboxes, det_labels
+            # det_bboxes, det_labels = multiclass_nms(
+            #     multi_lvl_bboxes,
+            #     multi_lvl_cls_scores,
+            #     cfg.score_thr,
+            #     cfg.nms,
+            #     cfg.max_per_img,
+            #     score_factors=multi_lvl_conf_scores)
+            # return det_bboxes, det_labels
+            num_classes = multi_lvl_cls_scores.size(1) - 1
+            num_boxes = multi_lvl_cls_scores.size(0)
+            if multi_lvl_conf_scores is not None:
+                multi_lvl_cls_scores = multi_lvl_cls_scores[:, :-1] * multi_lvl_conf_scores[:, None]
+            else:
+                multi_lvl_cls_scores = multi_lvl_cls_scores[:, :-1]
+
+            multi_lvl_bboxes = multi_lvl_bboxes.reshape(1, num_boxes, 1, 4)
+            multi_lvl_cls_scores = multi_lvl_cls_scores.reshape(1, num_boxes, num_classes)
+
+            nmsed_boxes, nmsed_scores, nmsed_classes, nmsed_num = torch_npu.npu_batch_nms(
+                multi_lvl_bboxes.half(), multi_lvl_cls_scores.half(), cfg.score_thr,
+                cfg.nms['iou_threshold'], cfg.max_per_img, cfg.max_per_img
+            )
+            nmsed_boxes = nmsed_boxes.reshape(nmsed_boxes.shape[1:])
+            nmsed_scores = nmsed_scores.reshape(nmsed_scores.shape[1])
+            nmsed_classes = nmsed_classes.reshape(nmsed_classes.shape[1])
+            return torch.cat([nmsed_boxes, nmsed_scores[:, None]], -1), nmsed_classes
         else:
             return (multi_lvl_bboxes, multi_lvl_cls_scores,
                     multi_lvl_conf_scores)
@@ -391,6 +411,7 @@ class YOLOV3Head(BaseDenseHead, BBoxTestMixin):
         num_imgs = len(pred_map)
         pred_map = pred_map.permute(0, 2, 3,
                                     1).reshape(num_imgs, -1, self.num_attrib)
+        pred_map = pred_map.float()
         neg_mask = neg_map.float()
         pos_mask = target_map[..., 4]
         pos_and_neg_mask = neg_mask + pos_mask
@@ -473,11 +494,17 @@ class YOLOV3Head(BaseDenseHead, BBoxTestMixin):
                     shape (num_total_anchors,)
         """
 
+        gt_bboxes = gt_bboxes.npu()
+        gt_labels = gt_labels.int().npu()
         anchor_strides = []
         for i in range(len(anchors)):
-            anchor_strides.append(
-                torch.tensor(self.featmap_strides[i],
-                             device=gt_bboxes.device).repeat(len(anchors[i])))
+            # anchor_strides.append(
+            #     torch.tensor(self.featmap_strides[i],
+            #                  device=gt_bboxes.device).repeat(len(anchors[i])))
+            tmp = torch.tensor(self.featmap_strides[i], dtype=torch.int32).repeat(len(anchors[i]))
+            tmp = tmp.npu()
+            anchor_strides.append(tmp)
+
         concat_anchors = torch.cat(anchors)
         concat_responsible_flags = torch.cat(responsible_flags)
 
@@ -487,30 +514,52 @@ class YOLOV3Head(BaseDenseHead, BBoxTestMixin):
         assign_result = self.assigner.assign(concat_anchors,
                                              concat_responsible_flags,
                                              gt_bboxes)
-        sampling_result = self.sampler.sample(assign_result, concat_anchors,
-                                              gt_bboxes)
+        # sampling_result = self.sampler.sample(assign_result, concat_anchors,
+        #                                       gt_bboxes)
 
         target_map = concat_anchors.new_zeros(
             concat_anchors.size(0), self.num_attrib)
 
-        target_map[sampling_result.pos_inds, :4] = self.bbox_coder.encode(
-            sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes,
-            anchor_strides[sampling_result.pos_inds])
+        gt_inds_f = assign_result.gt_inds.float()
+        pos_inds = gt_inds_f > 0
+        pos_inds_f = pos_inds.float()
+        neg_inds = gt_inds_f == 0
+        neg_inds_f = neg_inds.float()
 
-        target_map[sampling_result.pos_inds, 4] = 1
+        pos_bboxes = concat_anchors
+        pos_assigned_gt_inds = (gt_inds_f - 1) * pos_inds_f
 
-        gt_labels_one_hot = F.one_hot(
-            gt_labels, num_classes=self.num_classes).float()
+        pos_assigned_gt_inds_int = pos_assigned_gt_inds.int()
+        pos_gt_bboxes = gt_bboxes.index_select(0, pos_assigned_gt_inds_int)
+
+        # target_map[sampling_result.pos_inds, :4] = self.bbox_coder.encode(
+        #     sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes,
+        #     anchor_strides[sampling_result.pos_inds])
+        # target_map[sampling_result.pos_inds, 4] = 1
+
+        target_map[:, :4] = torch_npu.npu_yolo_boxes_encode(pos_bboxes,
+                                                            pos_gt_bboxes,
+                                                            anchor_strides,
+                                                            performance_mode=False)
+
+        target_map[:, 4] = pos_inds_f
+
+        gt_labels_one_hot = torch_npu.npu_one_hot(
+            gt_labels, -1, self.num_classes, 1, 0).float()
         if self.one_hot_smoother != 0:  # label smooth
             gt_labels_one_hot = gt_labels_one_hot * (
                 1 - self.one_hot_smoother
             ) + self.one_hot_smoother / self.num_classes
-        target_map[sampling_result.pos_inds, 5:] = gt_labels_one_hot[
-            sampling_result.pos_assigned_gt_inds]
 
-        neg_map = concat_anchors.new_zeros(
-            concat_anchors.size(0), dtype=torch.uint8)
-        neg_map[sampling_result.neg_inds] = 1
+        # target_map[sampling_result.pos_inds, 5:] = gt_labels_one_hot[
+        #     sampling_result.pos_assigned_gt_inds]
+        # neg_map = concat_anchors.new_zeros(
+        #     concat_anchors.size(0), dtype=torch.uint8)
+        # neg_map[sampling_result.neg_inds] = 1
+
+        target_map[:, 5:] = gt_labels_one_hot.index_select(0, pos_assigned_gt_inds_int)
+
+        neg_map = neg_inds_f
 
         return target_map, neg_map
 

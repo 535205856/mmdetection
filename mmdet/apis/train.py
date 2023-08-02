@@ -1,3 +1,5 @@
+import os
+import time
 import random
 
 import numpy as np
@@ -11,7 +13,46 @@ from mmdet.core import DistEvalHook, EvalHook
 from mmdet.datasets import (build_dataloader, build_dataset,
                             replace_ImageToTensor)
 from mmdet.utils import get_root_logger
+from apex import amp
+try:
+    from torch_npu.utils.profiler import Profile
+except ImportError:
+    print("Profile not in torch_npu.utils.profiler now.. Auto Profile disabled.", flush=True)
+    class Profile:
+        def __init__(self, *args, **kwargs):
+            pass
 
+        def start(self):
+            pass
+
+        def end(self):
+            pass
+
+from .runner_profiling import RunnerProfiling
+
+
+def train(self, data_loader, **kwargs):
+    self.model.train()
+    self.mode = 'train'
+    self.data_loader = data_loader
+    self._max_iters = self._max_epochs * len(self.data_loader)
+    self.call_hook('before_train_epoch')
+    time.sleep(2)  # Prevent possible deadlock during epoch transition
+    profile = Profile(start_step=int(os.getenv('PROFILE_START_STEP', 10)),
+                      profile_type=os.getenv('PROFILE_TYPE'))
+    for i, data_batch in enumerate(self.data_loader):
+        self._inner_iter = i
+        profile.start()
+        self.call_hook('before_train_iter')
+        self.run_iter(data_batch, train_mode=True)
+        self.call_hook('after_train_iter')
+        profile.end()
+        self._iter += 1
+
+    self.call_hook('after_train_epoch')
+    self._epoch += 1
+
+EpochBasedRunner.train = train
 
 def set_random_seed(seed, deterministic=False):
     """Set random seed.
@@ -26,7 +67,7 @@ def set_random_seed(seed, deterministic=False):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    torch.npu.manual_seed_all(seed)
     if deterministic:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -63,10 +104,24 @@ def train_detector(model,
             cfg.data.samples_per_gpu,
             cfg.data.workers_per_gpu,
             # cfg.gpus will be ignored if distributed
-            len(cfg.gpu_ids),
+            len(cfg.npu_ids),
             dist=distributed,
             seed=cfg.seed) for ds in dataset
     ]
+
+    if distributed:
+        model = model.npu()
+    else:
+        model = model.npu(cfg.npu_ids[0])
+
+    # build runner
+    if cfg.precision_mode == 'must_keep_origin_dtype':
+        optimizer = build_optimizer(model, cfg.optimizer_fp32)
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O0', combine_grad=False)
+    else:
+        optimizer = build_optimizer(model, cfg.optimizer)
+        model, optimizer = amp.initialize(model, optimizer, opt_level='O1', loss_scale='64', combine_grad=True)
+    amp.register_float_function(torch, 'sigmoid')
 
     # put model on gpus
     if distributed:
@@ -74,22 +129,28 @@ def train_detector(model,
         # Sets the `find_unused_parameters` parameter in
         # torch.nn.parallel.DistributedDataParallel
         model = MMDistributedDataParallel(
-            model.cuda(),
-            device_ids=[torch.cuda.current_device()],
+            model,
+            device_ids=[torch.npu.current_device()],
             broadcast_buffers=False,
             find_unused_parameters=find_unused_parameters)
     else:
         model = MMDataParallel(
-            model.cuda(cfg.gpu_ids[0]), device_ids=cfg.gpu_ids)
-
-    # build runner
-    optimizer = build_optimizer(model, cfg.optimizer)
-    runner = EpochBasedRunner(
-        model,
-        optimizer=optimizer,
-        work_dir=cfg.work_dir,
-        logger=logger,
-        meta=meta)
+            model, device_ids=cfg.npu_ids)
+    if cfg.profiling == "True":
+        runner = RunnerProfiling(
+            model,
+            optimizer=optimizer,
+            work_dir=cfg.work_dir,
+            logger=logger,
+            meta=meta,
+            max_iters=cfg.stop_step)
+    else:
+        runner = EpochBasedRunner(
+            model,
+            optimizer=optimizer,
+            work_dir=cfg.work_dir,
+            logger=logger,
+            meta=meta)
     # an ugly workaround to make .log and .log.json filenames the same
     runner.timestamp = timestamp
 

@@ -126,7 +126,7 @@ class Darknet(nn.Module):
         outs = []
         for i, layer_name in enumerate(self.cr_blocks):
             cr_block = getattr(self, layer_name)
-            x = cr_block(x)
+            x = cr_block(x.npu())
             if i in self.out_indices:
                 outs.append(x)
 

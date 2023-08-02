@@ -12,7 +12,7 @@ def images_to_levels(target, num_levels):
     for n in num_levels:
         end = start + n
         # level_targets.append(target[:, start:end].squeeze(0))
-        level_targets.append(target[:, start:end])
+        level_targets.append(target[:, start:end].contiguous())
         start = end
     return level_targets
 

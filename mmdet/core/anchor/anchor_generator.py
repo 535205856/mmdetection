@@ -1,6 +1,8 @@
 import mmcv
 import numpy as np
 import torch
+if torch.__version__ >= '1.8':
+    import torch_npu
 from torch.nn.modules.utils import _pair
 
 from .builder import ANCHOR_GENERATORS
@@ -203,7 +205,7 @@ class AnchorGenerator(object):
         else:
             return yy, xx
 
-    def grid_anchors(self, featmap_sizes, device='cuda'):
+    def grid_anchors(self, featmap_sizes, device='npu'):
         """Generate grid anchors in multiple feature levels.
 
         Args:
@@ -233,7 +235,7 @@ class AnchorGenerator(object):
                                   base_anchors,
                                   featmap_size,
                                   stride=(16, 16),
-                                  device='cuda'):
+                                  device='npu'):
         """Generate grid anchors of a single level.
 
         Note:
@@ -264,13 +266,14 @@ class AnchorGenerator(object):
         # add A anchors (1, A, 4) to K shifts (K, 1, 4) to get
         # shifted anchors (K, A, 4), reshape to (K*A, 4)
 
+        shifts = shifts.to(device)
         all_anchors = base_anchors[None, :, :] + shifts[:, None, :]
         all_anchors = all_anchors.view(-1, 4)
         # first A rows correspond to A anchors of (0, 0) in feature map,
         # then (0, 1), (0, 2), ...
         return all_anchors
 
-    def valid_flags(self, featmap_sizes, pad_shape, device='cuda'):
+    def valid_flags(self, featmap_sizes, pad_shape, device='npu'):
         """Generate valid flags of anchors in multiple feature levels.
 
         Args:
@@ -301,7 +304,7 @@ class AnchorGenerator(object):
                                  featmap_size,
                                  valid_size,
                                  num_base_anchors,
-                                 device='cuda'):
+                                 device='npu'):
         """Generate the valid flags of anchor in a single feature map.
 
         Args:
@@ -665,7 +668,7 @@ class YOLOAnchorGenerator(AnchorGenerator):
 
         return base_anchors
 
-    def responsible_flags(self, featmap_sizes, gt_bboxes, device='cuda'):
+    def responsible_flags(self, featmap_sizes, gt_bboxes, device='npu'):
         """Generate responsible anchor flags of grid cells in multiple scales.
 
         Args:
@@ -677,16 +680,22 @@ class YOLOAnchorGenerator(AnchorGenerator):
         Return:
             list(torch.Tensor): responsible flags of anchors in multiple level
         """
+        gt_bboxes = gt_bboxes.to(device)
         assert self.num_levels == len(featmap_sizes)
         multi_level_responsible_flags = []
         for i in range(self.num_levels):
             anchor_stride = self.strides[i]
-            flags = self.single_level_responsible_flags(
-                featmap_sizes[i],
+            # flags = self.single_level_responsible_flags(
+            #     featmap_sizes[i],
+            #     gt_bboxes,
+            #     anchor_stride,
+            #     self.num_base_anchors[i],
+            #     device=device)
+            flags = torch_npu.npu_anchor_response_flags(
                 gt_bboxes,
+                featmap_sizes[i],
                 anchor_stride,
-                self.num_base_anchors[i],
-                device=device)
+                self.num_base_anchors[i])
             multi_level_responsible_flags.append(flags)
         return multi_level_responsible_flags
 
@@ -695,7 +704,7 @@ class YOLOAnchorGenerator(AnchorGenerator):
                                        gt_bboxes,
                                        stride,
                                        num_base_anchors,
-                                       device='cuda'):
+                                       device='npu'):
         """Generate the responsible flags of anchor in a single feature map.
 
         Args:
@@ -713,14 +722,16 @@ class YOLOAnchorGenerator(AnchorGenerator):
         feat_h, feat_w = featmap_size
         gt_bboxes_cx = ((gt_bboxes[:, 0] + gt_bboxes[:, 2]) * 0.5).to(device)
         gt_bboxes_cy = ((gt_bboxes[:, 1] + gt_bboxes[:, 3]) * 0.5).to(device)
-        gt_bboxes_grid_x = torch.floor(gt_bboxes_cx / stride[0]).long()
-        gt_bboxes_grid_y = torch.floor(gt_bboxes_cy / stride[1]).long()
+        gt_bboxes_grid_x = torch.floor(gt_bboxes_cx / stride[0]).int()
+        gt_bboxes_grid_y = torch.floor(gt_bboxes_cy / stride[1]).int()
 
         # row major indexing
         gt_bboxes_grid_idx = gt_bboxes_grid_y * feat_w + gt_bboxes_grid_x
 
         responsible_grid = torch.zeros(
             feat_h * feat_w, dtype=torch.uint8, device=device)
+        gt_bboxes_grid_idx = gt_bboxes_grid_idx.long()
+
         responsible_grid[gt_bboxes_grid_idx] = 1
 
         responsible_grid = responsible_grid[:, None].expand(

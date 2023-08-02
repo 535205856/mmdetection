@@ -131,6 +131,7 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
                 augs (multiscale, flip, etc.) and the inner list indicates
                 images in a batch.
         """
+        img_metas = img_metas[0]._data
         for var, name in [(imgs, 'imgs'), (img_metas, 'img_metas')]:
             if not isinstance(var, list):
                 raise TypeError(f'{name} must be a list, but got {type(var)}')
