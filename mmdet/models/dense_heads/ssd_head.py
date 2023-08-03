@@ -1,3 +1,16 @@
+# Copyright 2021 Huawei Technologies Co., Ltd
+#
+# Licensed under the BSD 3-Clause License  (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# https://opensource.org/licenses/BSD-3-Clause
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -40,7 +53,6 @@ class SSDHead(AnchorHead):
                      basesize_ratio_range=(0.1, 0.9)),
                  bbox_coder=dict(
                      type='DeltaXYWHBBoxCoder',
-                     clip_border=True,
                      target_means=[.0, .0, .0, .0],
                      target_stds=[1.0, 1.0, 1.0, 1.0],
                  ),
@@ -145,7 +157,7 @@ class SSDHead(AnchorHead):
         """
 
         loss_cls_all = F.cross_entropy(
-            cls_score, labels, reduction='none') * label_weights
+            cls_score, labels.int(), reduction='none') * label_weights
         # FG cat_id: [0, num_classes -1], BG cat_id: num_classes
         pos_inds = ((labels >= 0) &
                     (labels < self.num_classes)).nonzero().reshape(-1)
@@ -155,9 +167,10 @@ class SSDHead(AnchorHead):
         num_neg_samples = self.train_cfg.neg_pos_ratio * num_pos_samples
         if num_neg_samples > neg_inds.size(0):
             num_neg_samples = neg_inds.size(0)
-        topk_loss_cls_neg, _ = loss_cls_all[neg_inds].topk(num_neg_samples)
-        loss_cls_pos = loss_cls_all[pos_inds].sum()
-        loss_cls_neg = topk_loss_cls_neg.sum()
+        loss_cls_all_cpu = loss_cls_all.cpu()
+        topk_loss_cls_neg, _ = loss_cls_all_cpu[neg_inds.cpu()].topk(num_neg_samples)
+        loss_cls_pos = loss_cls_all_cpu[pos_inds.cpu()].sum().npu()
+        loss_cls_neg = topk_loss_cls_neg.sum().npu()
         loss_cls = (loss_cls_pos + loss_cls_neg) / num_total_samples
 
         if self.reg_decoded_bbox:
