@@ -95,7 +95,7 @@ chmod +x ${cur_path}/tools/dist_train.sh
 #训练开始时间，不需要修改
 start_time=$(date +%s)
 
-sed -i "s|data/coco/|$data_path/|g" configs/yolo/ssd300_coco.py
+sed -i "s|data/coco/|$data_path/|g" configs/ssd/ssd300_coco.py
 
 #执行训练脚本，以下传参不需要修改，其他需要模型审视修改
 python3 ./tools/train_npu.py configs/ssd/ssd300_coco.py \
