@@ -1,6 +1,40 @@
+# BSD 3-Clause License
+#
+# Copyright (c) 2017 xxxx
+# All rights reserved.
+# Copyright 2021 Huawei Technologies Co., Ltd
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# ============================================================================
+
 import torch.nn as nn
 import torch.nn.functional as F
-from mmcv.ops import sigmoid_focal_loss as _sigmoid_focal_loss
+import torch
+if torch.__version__ >= '1.8':
+    import torch_npu
 
 from ..builder import LOSSES
 from .utils import weight_reduce_loss
@@ -40,6 +74,32 @@ def py_sigmoid_focal_loss(pred,
     loss = weight_reduce_loss(loss, weight, reduction, avg_factor)
     return loss
 
+def _sigmoid_focal_loss(pred, 
+                        target, 
+                        gamma=2.0, 
+                        alpha=0.25, 
+                        reduction='mean'):
+    pred=pred.float()
+    pred = torch_npu.npu_format_cast(pred, 0)
+    p = torch.sigmoid(pred)
+    
+    targets_zero = torch.zeros(p.shape[0], p.shape[1] + 1).int().npu()
+    target = targets_zero.scatter_(1, target.unsqueeze(1), 1).float()[:,:80].npu()
+    
+    ce_loss = F.binary_cross_entropy_with_logits(pred, target, reduction="none")
+    p_t = p * target + (1 - p) * (1 - target)
+    loss = ce_loss * ((1 - p_t) ** gamma)
+
+    if alpha >= 0:
+        alpha_t = alpha * target + (1 - alpha) * (1 - target)
+        loss = alpha_t * loss
+
+    if reduction == 'mean':
+        loss = loss.mean()
+    elif reduction == 'sum':
+        loss = loss.sum()
+    
+    return loss
 
 def sigmoid_focal_loss(pred,
                        target,
@@ -64,10 +124,8 @@ def sigmoid_focal_loss(pred,
             a scalar. Defaults to 'mean'. Options are "none", "mean" and "sum".
         avg_factor (int, optional): Average factor that is used to average
             the loss. Defaults to None.
-    """
-    # Function.apply does not accept keyword arguments, so the decorator
-    # "weighted_loss" is not applicable
-    loss = _sigmoid_focal_loss(pred.contiguous(), target, gamma, alpha, None,
+    """    
+    loss = _sigmoid_focal_loss(pred.contiguous(), target, gamma, alpha,
                                'none')
     if weight is not None:
         if weight.shape != loss.shape:
@@ -77,9 +135,6 @@ def sigmoid_focal_loss(pred,
                 weight = weight.view(-1, 1)
             else:
                 # Sometimes, weight per anchor per class is also needed. e.g.
-                #  in FSAF. But it may be flattened of shape
-                #  (num_priors x num_class, ), while loss is still of shape
-                #  (num_priors, num_class).
                 assert weight.numel() == loss.numel()
                 weight = weight.view(loss.size(0), -1)
         assert weight.ndim == loss.ndim
