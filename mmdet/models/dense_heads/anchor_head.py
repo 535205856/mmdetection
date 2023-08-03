@@ -1,4 +1,6 @@
 import torch
+if torch.__version__ >= '1.8':
+    import torch_npu
 import torch.nn as nn
 from mmcv.cnn import normal_init
 from mmcv.runner import force_fp32
@@ -622,6 +624,10 @@ class AnchorHead(BaseDenseHead, BBoxTestMixin):
             cls_score = cls_score.permute(1, 2,
                                           0).reshape(-1, self.cls_out_channels)
             if self.use_sigmoid_cls:
+                ########## myy add#########
+                print("cls_score npu_format:", cls_score.storage().npu_format())
+                cls_score = torch_npu.npu_format_cast(cls_score, 0)
+                ########## myy add#########
                 scores = cls_score.sigmoid()
             else:
                 scores = cls_score.softmax(-1)

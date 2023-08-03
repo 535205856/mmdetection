@@ -1,4 +1,38 @@
+# BSD 3-Clause License
+#
+# Copyright (c) 2017
+# All rights reserved.
+# Copyright 2023 Huawei Technologies Co., Ltd
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# ==========================================================================
+
 import torch
+if torch.__version__ >= '1.8':
+    import torch_npu
 import torch.nn as nn
 import torch.nn.functional as F
 from mmcv.cnn import Scale, normal_init
@@ -186,8 +220,10 @@ class FCOSHead(AnchorFreeHead):
         """
         assert len(cls_scores) == len(bbox_preds) == len(centernesses)
         featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
+
         all_level_points = self.get_points(featmap_sizes, bbox_preds[0].dtype,
                                            bbox_preds[0].device)
+
         labels, bbox_targets = self.get_targets(all_level_points, gt_bboxes,
                                                 gt_labels)
 
@@ -205,47 +241,59 @@ class FCOSHead(AnchorFreeHead):
             centerness.permute(0, 2, 3, 1).reshape(-1)
             for centerness in centernesses
         ]
-        flatten_cls_scores = torch.cat(flatten_cls_scores)
-        flatten_bbox_preds = torch.cat(flatten_bbox_preds)
-        flatten_centerness = torch.cat(flatten_centerness)
+        flatten_cls_scores = torch.cat(flatten_cls_scores).float()
+        flatten_bbox_preds = torch.cat(flatten_bbox_preds).float()
+        flatten_centerness = torch.cat(flatten_centerness).float()
         flatten_labels = torch.cat(labels)
-        flatten_bbox_targets = torch.cat(bbox_targets)
+        flatten_bbox_targets = torch.cat(bbox_targets).float()
         # repeat points to align with bbox_preds
         flatten_points = torch.cat(
             [points.repeat(num_imgs, 1) for points in all_level_points])
 
         # FG cat_id: [0, num_classes -1], BG cat_id: num_classes
         bg_class_ind = self.num_classes
+
+        # changed by wjb
         pos_inds = ((flatten_labels >= 0)
-                    & (flatten_labels < bg_class_ind)).nonzero().reshape(-1)
-        num_pos = len(pos_inds)
+                    & (flatten_labels < bg_class_ind))
+
+        pos_mask = pos_inds.float()  # added by wjb
+
+        num_pos = pos_mask.sum()  # added by wjb
+
         loss_cls = self.loss_cls(
             flatten_cls_scores, flatten_labels,
             avg_factor=num_pos + num_imgs)  # avoid num_pos is 0
 
-        pos_bbox_preds = flatten_bbox_preds[pos_inds]
-        pos_centerness = flatten_centerness[pos_inds]
-
         if num_pos > 0:
-            pos_bbox_targets = flatten_bbox_targets[pos_inds]
-            pos_centerness_targets = self.centerness_target(pos_bbox_targets)
-            pos_points = flatten_points[pos_inds]
+            pos_bbox_preds = flatten_bbox_preds # N,4 * N,1
+            pos_centerness = flatten_centerness 
+
+            pos_bbox_targets = flatten_bbox_targets
+            pos_centerness_targets = self.centerness_target(pos_bbox_targets, pos_mask)
+            pos_points = flatten_points
             pos_decoded_bbox_preds = distance2bbox(pos_points, pos_bbox_preds)
             pos_decoded_target_preds = distance2bbox(pos_points,
                                                      pos_bbox_targets)
-            # centerness weighted iou loss
+            
             loss_bbox = self.loss_bbox(
                 pos_decoded_bbox_preds,
                 pos_decoded_target_preds,
-                weight=pos_centerness_targets,
-                avg_factor=pos_centerness_targets.sum())
-            loss_centerness = self.loss_centerness(pos_centerness,
-                                                   pos_centerness_targets)
+                weight=pos_centerness_targets * pos_mask,
+                avg_factor=(pos_centerness_targets * pos_mask).sum())
+            
+            loss_centerness = self.loss_centerness(
+                pos_centerness, 
+                pos_centerness_targets, 
+                weight=pos_mask, 
+                avg_factor=num_pos
+            )
         else:
+            pos_bbox_preds = flatten_bbox_preds * pos_mask.unsqueeze(1) # N,4 * N,1
+            pos_centerness = flatten_centerness * pos_mask
             loss_bbox = pos_bbox_preds.sum()
             loss_centerness = pos_centerness.sum()
-
-        return dict(
+        return  dict(
             loss_cls=loss_cls,
             loss_bbox=loss_bbox,
             loss_centerness=loss_centerness)
@@ -360,8 +408,12 @@ class FCOSHead(AnchorFreeHead):
                 cls_scores, bbox_preds, centernesses, mlvl_points):
             assert cls_score.size()[-2:] == bbox_pred.size()[-2:]
             scores = cls_score.permute(1, 2, 0).reshape(
-                -1, self.cls_out_channels).sigmoid()
-            centerness = centerness.permute(1, 2, 0).reshape(-1).sigmoid()
+                -1, self.cls_out_channels)#.sigmoid()
+
+            scores = torch_npu.npu_format_cast(scores, 0).sigmoid()
+            centerness = centerness.permute(1, 2, 0).reshape(-1)#.sigmoid()
+
+            centerness = torch_npu.npu_format_cast(centerness, 0).sigmoid()
 
             bbox_pred = bbox_pred.permute(1, 2, 0).reshape(-1, 4)
             nms_pre = cfg.get('nms_pre', -1)
@@ -474,12 +526,13 @@ class FCOSHead(AnchorFreeHead):
     def _get_target_single(self, gt_bboxes, gt_labels, points, regress_ranges,
                            num_points_per_lvl):
         """Compute regression and classification targets for a single image."""
+        # gt_labels = gt_labels.to("cpu")  # added by jyl
         num_points = points.size(0)
         num_gts = gt_labels.size(0)
         if num_gts == 0:
             return gt_labels.new_full((num_points,), self.num_classes), \
                    gt_bboxes.new_zeros((num_points, 4))
-
+        gt_bboxes = gt_bboxes.float()  # added by jyl
         areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0]) * (
             gt_bboxes[:, 3] - gt_bboxes[:, 1])
         # TODO: figure out why these two are different
@@ -492,12 +545,15 @@ class FCOSHead(AnchorFreeHead):
         xs = xs[:, None].expand(num_points, num_gts)
         ys = ys[:, None].expand(num_points, num_gts)
 
+
+
+        gt_bboxes = gt_bboxes.float()
+
         left = xs - gt_bboxes[..., 0]
         right = gt_bboxes[..., 2] - xs
         top = ys - gt_bboxes[..., 1]
         bottom = gt_bboxes[..., 3] - ys
         bbox_targets = torch.stack((left, top, right, bottom), -1)
-
         if self.center_sampling:
             # condition1: inside a `center bbox`
             radius = self.center_sample_radius
@@ -535,7 +591,10 @@ class FCOSHead(AnchorFreeHead):
             inside_gt_bbox_mask = center_bbox.min(-1)[0] > 0
         else:
             # condition1: inside a gt bbox
+
+
             inside_gt_bbox_mask = bbox_targets.min(-1)[0] > 0
+
 
         # condition2: limit the regression range for each location
         max_regress_distance = bbox_targets.max(-1)[0]
@@ -555,7 +614,7 @@ class FCOSHead(AnchorFreeHead):
 
         return labels, bbox_targets
 
-    def centerness_target(self, pos_bbox_targets):
+    def centerness_target(self, pos_bbox_targets, pos_mask):
         """Compute centerness targets.
 
         Args:
@@ -566,9 +625,13 @@ class FCOSHead(AnchorFreeHead):
             Tensor: Centerness target.
         """
         # only calculate pos centerness targets, otherwise there may be nan
+        # print("[pos_bbox_targets]:",pos_bbox_targets.dtype,pos_bbox_targets.device,pos_bbox_targets.shape)  # added by wjb
         left_right = pos_bbox_targets[:, [0, 2]]
         top_bottom = pos_bbox_targets[:, [1, 3]]
+
         centerness_targets = (
-            left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * (
-                top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
+            left_right.min(dim=-1)[0] / (left_right.max(dim=-1)[0] + 1e-5)) * (
+                top_bottom.min(dim=-1)[0] / (top_bottom.max(dim=-1)[0] + 1e-5))
+
+        centerness_targets = centerness_targets * pos_mask
         return torch.sqrt(centerness_targets)
