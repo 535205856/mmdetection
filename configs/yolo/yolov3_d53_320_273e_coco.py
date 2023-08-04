@@ -41,5 +41,12 @@ data = dict(
     val=dict(pipeline=test_pipeline),
     test=dict(pipeline=test_pipeline))
 
+log_config = dict(
+    interval=1,
+    hooks=[
+        dict(type='TextLoggerHook'),
+        # dict(type='TensorboardLoggerHook')
+    ])
+
 dist_params = dict(backend='hccl')
 
