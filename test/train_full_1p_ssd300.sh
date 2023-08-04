@@ -22,7 +22,7 @@ data_path=""
 Network="SSD300_for_PyTorch"
 
 #训练batch_size,,需要模型审视修改
-batch_size=8
+batch_size=64
 
 # 指定训练所使用的npu device卡id
 device_id=0
