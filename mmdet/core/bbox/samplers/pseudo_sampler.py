@@ -32,9 +32,13 @@ class PseudoSampler(BaseSampler):
             :obj:`SamplingResult`: sampler results
         """
         pos_inds = torch.nonzero(
-            assign_result.gt_inds > 0, as_tuple=False).squeeze(-1).unique()
+            assign_result.gt_inds > 0, as_tuple=False).squeeze(-1)
+        if pos_inds.numel() > 0:
+            pos_inds = pos_inds.unique()
         neg_inds = torch.nonzero(
-            assign_result.gt_inds == 0, as_tuple=False).squeeze(-1).unique()
+            assign_result.gt_inds == 0, as_tuple=False).squeeze(-1)
+        if neg_inds.numel() > 0:
+            neg_inds = neg_inds.unique()
         gt_flags = bboxes.new_zeros(bboxes.shape[0], dtype=torch.uint8)
         sampling_result = SamplingResult(pos_inds, neg_inds, bboxes, gt_bboxes,
                                          assign_result, gt_flags)

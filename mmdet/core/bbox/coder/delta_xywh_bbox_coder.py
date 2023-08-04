@@ -1,6 +1,7 @@
 import numpy as np
 import torch
-
+if torch.__version__ >= '1.8':
+    import torch_npu
 from ..builder import BBOX_CODERS
 from .base_bbox_coder import BaseBBoxCoder
 
@@ -46,8 +47,21 @@ class DeltaXYWHBBoxCoder(BaseBBoxCoder):
 
         assert bboxes.size(0) == gt_bboxes.size(0)
         assert bboxes.size(-1) == gt_bboxes.size(-1) == 4
-        encoded_bboxes = bbox2delta(bboxes, gt_bboxes, self.means, self.stds)
-        return encoded_bboxes
+        if torch.onnx.is_in_onnx_export():
+            encoded_bboxes = bbox2delta(bboxes, gt_bboxes, self.means, self.stds)
+            return encoded_bboxes
+        else:
+            MAX_SIZE = 8732
+            bboxes_fix = bboxes.new_zeros(MAX_SIZE, 4)
+            gt_bboxes_fix = gt_bboxes.new_zeros(MAX_SIZE, 4)
+            bboxes_fix[:bboxes.size(0)] = bboxes
+            gt_bboxes_fix[:gt_bboxes.size(0)] = gt_bboxes
+            encoded_bboxes_fix = torch_npu.npu_bounding_box_encode(bboxes_fix, gt_bboxes_fix,
+                                                                   self.means[0], self.means[1], self.means[2],
+                                                                   self.means[3],
+                                                                   self.stds[0], self.stds[1], self.stds[2],
+                                                                   self.stds[3])
+            return encoded_bboxes_fix[:bboxes.size(0)]
 
     def decode(self,
                bboxes,
@@ -168,8 +182,12 @@ def delta2bbox(rois,
                 [0.0000, 0.3161, 4.1945, 0.6839],
                 [5.0000, 5.0000, 5.0000, 5.0000]])
     """
-    means = deltas.new_tensor(means).view(1, -1).repeat(1, deltas.size(1) // 4)
-    stds = deltas.new_tensor(stds).view(1, -1).repeat(1, deltas.size(1) // 4)
+    if deltas.size(1) // 4 == 1:
+        means = deltas.new_tensor(means).view(1, -1)
+        stds = deltas.new_tensor(stds).view(1, -1)
+    else:
+        means = deltas.new_tensor(means).view(1, -1).repeat(1, deltas.size(1) // 4)
+        stds = deltas.new_tensor(stds).view(1, -1).repeat(1, deltas.size(1) // 4)
     denorm_deltas = deltas * stds + means
     dx = denorm_deltas[:, 0::4]
     dy = denorm_deltas[:, 1::4]
