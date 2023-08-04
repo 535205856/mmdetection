@@ -73,8 +73,10 @@ def parse_args():
     parser.add_argument('--master-port', type=str, default='23333', help='master port')
     parser.add_argument('--profiling', type=str, default='False', help='profiling')
     parser.add_argument('--stop_step', default=100, type=int,help='profiling stop_step')
-    parser.add_argument('--precision_mode', default='allow_mix_precision', type=str,help='precision_mode')
-    
+    # parser.add_argument('--precision_mode', default='allow_mix_precision', type=str,help='precision_mode')
+    # 230804不编译 待验证 是否调试会快点
+    parser.add_argument('--precision_mode', default='must_keep_origin_dtype', type=str,help='precision_mode')
+
     args = parser.parse_args()
     if 'LOCAL_RANK' not in os.environ:
         os.environ['LOCAL_RANK'] = str(args.local_rank)
