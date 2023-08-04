@@ -29,6 +29,7 @@ device_id=0
 
 
 #维测参数，precision_mode需要模型审视修改
+#precision_mode="must_keep_origin_dtype"
 precision_mode="allow_mix_precision"
 
 #参数校验，不需要修改
