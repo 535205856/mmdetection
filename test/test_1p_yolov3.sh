@@ -88,7 +88,7 @@ sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coc
 python3 ./tools/test_npu.py ./configs/yolo/yolov3_d53_320_273e_coco.py \
   ./work_dirs/yolov3_d53_320_273e_coco/latest.pth \
   --cfg-options optimizer.lr=0.001 data.samples_per_gpu=${batch_size} \
-  --out ${test_path_dir}/output/yolov3/eval/$ASCEND_DEVICE_ID   \
+  --out ${test_path_dir}/output/yolov3/eval/$ASCEND_DEVICE_ID/test_out.pkl   \
   --eval bbox  --launcher pytorch > ${test_path_dir}/output/yolov3/eval/${ASCEND_DEVICE_ID}/test_${ASCEND_DEVICE_ID}.log 2>&1 &
 wait
 ##################获取训练数据################
