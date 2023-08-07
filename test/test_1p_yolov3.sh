@@ -9,7 +9,7 @@ data_path=""
 Network="YoloV3_ID1790_for_PyTorch"
 
 #训练batch_size,,需要模型审视修改
-batch_size=64
+batch_size=512
 
 
 #维测参数，precision_mode需要模型审视修改
@@ -87,7 +87,7 @@ sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coc
 
 python3 ./tools/test_npu.py ./configs/yolo/yolov3_d53_320_273e_coco.py \
   ./work_dirs/yolov3_d53_320_273e_coco/latest.pth \
-  --cfg-options optimizer.lr=0.001 data.samples_per_gpu=${batch_size} \
+  --cfg-options optimizer.lr=0.001 data.test.samples_per_gpu=${batch_size} \
   --local_rank 0 \
   --out ${test_path_dir}/output/yolov3/eval/$ASCEND_DEVICE_ID/test_out.pkl   \
   --eval bbox  > ${test_path_dir}/output/yolov3/eval/${ASCEND_DEVICE_ID}/test_${ASCEND_DEVICE_ID}.log 2>&1 &
