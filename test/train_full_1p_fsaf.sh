@@ -19,10 +19,10 @@ export RANK_SIZE=1
 data_path=""
 
 #网络名称,同目录名称,需要模型审视修改
-Network="YoloV3_ID1790_for_PyTorch"
+Network="FSAF_for_PyTorch"
 
 #训练batch_size,,需要模型审视修改
-batch_size=64
+batch_size=8
 
 # 指定训练所使用的npu device卡id
 device_id=0
