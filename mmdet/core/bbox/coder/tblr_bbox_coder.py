@@ -1,5 +1,5 @@
 import torch
-
+import mmcv
 from ..builder import BBOX_CODERS
 from .base_bbox_coder import BaseBBoxCoder
 
@@ -67,7 +67,7 @@ class TBLRBBoxCoder(BaseBBoxCoder):
 
         return decoded_bboxes
 
-
+@mmcv.jit(coderize=True)
 def bboxes2tblr(priors, gts, normalizer=4.0, normalize_by_wh=True):
     """Encode ground truth boxes to tblr coordinate.
 
@@ -113,7 +113,7 @@ def bboxes2tblr(priors, gts, normalizer=4.0, normalize_by_wh=True):
     # Normalize tblr by the given normalization factor
     return loc / normalizer
 
-
+@mmcv.jit(coderize=True)
 def tblr2bboxes(priors,
                 tblr,
                 normalizer=4.0,

@@ -276,7 +276,8 @@ class BBoxHead(nn.Module):
             >>>                    pos_is_gts, img_metas)
             >>> print(bboxes_list)
         """
-        img_ids = rois[:, 0].long().unique(sorted=True)
+        # img_ids = rois[:, 0].long().unique(sorted=True)
+        img_ids = rois[:, 0].int().unique(sorted=True)
         assert img_ids.numel() <= len(img_metas)
 
         bboxes_list = []

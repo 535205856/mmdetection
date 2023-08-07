@@ -1,3 +1,4 @@
+import copy
 import inspect
 
 import mmcv
@@ -309,7 +310,7 @@ class Resize(object):
         repr_str += f'(img_scale={self.img_scale}, '
         repr_str += f'multiscale_mode={self.multiscale_mode}, '
         repr_str += f'ratio_range={self.ratio_range}, '
-        repr_str += f'keep_ratio={self.keep_ratio})'
+        repr_str += f'keep_ratio={self.keep_ratio}, '
         repr_str += f'bbox_clip_border={self.bbox_clip_border})'
         return repr_str
 
@@ -520,30 +521,6 @@ class Pad(object):
             results[key] = mmcv.impad(
                 results[key], shape=results['pad_shape'][:2])
 
-    def _pad_labels(self, results):
-        """Pad gt_labels."""
-        if "gt_labels" not in results:
-            return
-        labels = results['gt_labels']
-        gt_labels_zero = np.zeros((128), dtype=np.int64)
-        num_gt = labels.shape[0]
-        gt_labels_zero[:num_gt] = gt_labels_zero[:num_gt] + labels
-        labels = gt_labels_zero
-
-        results['gt_labels'] = labels
-
-    def _pad_bboxes(self, results):
-        """Pad gt_bboxes."""
-        if "gt_bboxes" not in results:
-            return
-        bboxes = results['gt_bboxes']
-        gt_bboxes_zero = np.zeros((128, 4), dtype=np.float32)
-        num_gt = bboxes.shape[0]
-        gt_bboxes_zero[:num_gt] = gt_bboxes_zero[:num_gt] + bboxes
-        bboxes = gt_bboxes_zero
-
-        results['gt_bboxes'] = bboxes
-
     def __call__(self, results):
         """Call function to pad images, masks, semantic segmentation maps.
 
@@ -556,9 +533,6 @@ class Pad(object):
         self._pad_img(results)
         self._pad_masks(results)
         self._pad_seg(results)
-        self._pad_labels(results)
-        self._pad_bboxes(results)
-
         return results
 
     def __repr__(self):
@@ -1165,7 +1139,7 @@ class MinIoURandomCrop(object):
     def __repr__(self):
         repr_str = self.__class__.__name__
         repr_str += f'(min_ious={self.min_ious}, '
-        repr_str += f'min_crop_size={self.min_crop_size}), '
+        repr_str += f'min_crop_size={self.min_crop_size}, '
         repr_str += f'bbox_clip_border={self.bbox_clip_border})'
         return repr_str
 
@@ -1266,6 +1240,12 @@ class Albu(object):
         if Compose is None:
             raise RuntimeError('albumentations is not installed')
 
+        # Args will be modified later, copying it will be safer
+        transforms = copy.deepcopy(transforms)
+        if bbox_params is not None:
+            bbox_params = copy.deepcopy(bbox_params)
+        if keymap is not None:
+            keymap = copy.deepcopy(keymap)
         self.transforms = transforms
         self.filter_lost_elements = False
         self.update_pad_shape = update_pad_shape
@@ -1752,7 +1732,7 @@ class RandomCenterCropPad(object):
         repr_str += f'std={self.input_std}, '
         repr_str += f'to_rgb={self.to_rgb}, '
         repr_str += f'test_mode={self.test_mode}, '
-        repr_str += f'test_pad_mode={self.test_pad_mode}), '
+        repr_str += f'test_pad_mode={self.test_pad_mode}, '
         repr_str += f'bbox_clip_border={self.bbox_clip_border})'
         return repr_str
 

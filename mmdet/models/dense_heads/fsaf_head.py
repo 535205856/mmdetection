@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+if torch.__version__ >= '1.8':
+    import torch_npu
 from mmcv.cnn import normal_init
 from mmcv.runner import force_fp32
 
@@ -84,6 +86,8 @@ class FSAFHead(RetinaHead):
           anchor bbox is not matched to any gt, the corresponding value in
           pos_gt_inds is -1.
         """
+
+        # print('fsaf anchor_inside_flags')
         inside_flags = anchor_inside_flags(flat_anchors, valid_flags,
                                            img_meta['img_shape'][:2],
                                            self.train_cfg.allowed_border)
@@ -91,52 +95,114 @@ class FSAFHead(RetinaHead):
             return (None, ) * 7
         # Assign gt and sample anchors
         anchors = flat_anchors[inside_flags.type(torch.bool), :]
+
+        # print('fsaf assigner.assign')
         assign_result = self.assigner.assign(
             anchors, gt_bboxes, gt_bboxes_ignore,
             None if self.sampling else gt_labels)
 
-        sampling_result = self.sampler.sample(assign_result, anchors,
-                                              gt_bboxes)
+        # sampling_result = self.sampler.sample(assign_result, anchors,
+        #                                       gt_bboxes)
 
         num_valid_anchors = anchors.shape[0]
         bbox_targets = torch.zeros_like(anchors)
-        bbox_weights = torch.zeros_like(anchors)
+        bbox_weights = torch.ones_like(anchors)
+
+        # NPU - zhouzhou
+        # new_full 只支持 int32, float16, float32
         labels = anchors.new_full((num_valid_anchors, ),
                                   self.num_classes,
-                                  dtype=torch.long)
+                                  dtype=torch.int)
+
         label_weights = anchors.new_zeros((num_valid_anchors, label_channels),
                                           dtype=torch.float)
+
+        # NPU - zhouzhou
+        # new_full 只支持 int32, float16, float32
         pos_gt_inds = anchors.new_full((num_valid_anchors, ),
                                        -1,
-                                       dtype=torch.long)
+                                       dtype=torch.int)
 
-        pos_inds = sampling_result.pos_inds
-        neg_inds = sampling_result.neg_inds
+        gt_inds_f = assign_result.gt_inds.float().npu()
+        # print('gt_inds_f: ', gt_inds_f.shape, gt_inds_f.dtype, gt_inds_f.device, gt_inds_f)
+        pos_inds = gt_inds_f > 0
+        pos_inds_f = pos_inds.float()
+        pos_inds_f_u1 = pos_inds_f.unsqueeze(1)
+        # print('pos_inds: ', pos_inds.shape, pos_inds.dtype, pos_inds.device)
+        # print('pos_inds_f: ', pos_inds_f.shape, pos_inds_f.dtype, pos_inds_f.device)
+        # print('pos_inds_f_u1: ', pos_inds_f_u1.shape, pos_inds_f_u1.dtype, pos_inds_f_u1.device)
+        neg_inds = gt_inds_f == 0
+        # print('neg_inds: ', neg_inds.shape, neg_inds)
+        neg_inds_f = neg_inds.float()
+        neg_inds_f_u1 = neg_inds_f.unsqueeze(1)
+        # print('neg_inds: ', neg_inds.shape, neg_inds.dtype, neg_inds.device)
+
+
+        # 源代码：pos_assigned_gt_inds = gt_inds_f[pos_inds] - 1
+        # NPU - zhouzhou
+        pos_assigned_gt_inds = (gt_inds_f - 1) * pos_inds
+        pos_assigned_gt_inds_int = pos_assigned_gt_inds.int()
+        pos_gt_bboxes = gt_bboxes.index_select(0, pos_assigned_gt_inds_int)
 
         if len(pos_inds) > 0:
             if not self.reg_decoded_bbox:
-                pos_bbox_targets = self.bbox_coder.encode(
-                    sampling_result.pos_bboxes, sampling_result.pos_gt_bboxes)
+                # print('sampling_result.pos_bboxes: ', sampling_result.pos_bboxes.shape, sampling_result.pos_bboxes.dtype, sampling_result.pos_bboxes.device)
+                # TODO: 为什么不是 pos_bbox_targets = self.bbox_coder.encode(anchors * pos_inds_f, pos_gt_bboxes)
+                # print('anchors: ', anchors.shape, anchors.dtype, anchors.device)
+                # print('pos_inds: ', pos_inds.shape, pos_inds.dtype, pos_inds.device)
+                # print('pos_inds_f: ', pos_inds_f.shape, pos_inds_f.dtype, pos_inds_f.device)
+                # print('pos_inds_f_u1: ', pospos_inds_f_u1_inds_f.shape, pos_inds_f_u1.dtype, pos_inds_f_u1.device)
+                pos_bbox_targets = self.bbox_coder.encode(anchors, pos_gt_bboxes)
+                # pos_bbox_targets = self.bbox_coder.encode(anchors * pos_inds, pos_gt_bboxes)
+                # print('pos_bbox_targets: ', pos_bbox_targets.shape, pos_bbox_targets.dtype, pos_bbox_targets.device)
             else:
-                pos_bbox_targets = sampling_result.pos_gt_bboxes
-            bbox_targets[pos_inds, :] = pos_bbox_targets
-            bbox_weights[pos_inds, :] = 1.0
+                # When the regression loss (e.g. `IouLoss`, `GIouLoss`)
+                # is applied directly on the decoded bounding boxes, both
+                # the predicted boxes and regression targets should be with
+                # absolute coordinate format.
+                pos_bbox_targets = pos_gt_bboxes
+                # print('pos_bbox_targets: ', pos_bbox_targets.shape, pos_bbox_targets.dtype, pos_bbox_targets.device)
+
+            bbox_targets = pos_bbox_targets * pos_inds_f_u1
+            # print('bbox_targets: ', bbox_targets.shape, bbox_targets.dtype, bbox_targets.device, bbox_targets)
+            bbox_weights = bbox_weights * pos_inds_f_u1
+            # print('bbox_weights: ', bbox_weights.shape, bbox_weights.dtype, bbox_weights.device, bbox_weights)
+
             # The assigned gt_index for each anchor. (0-based)
-            pos_gt_inds[pos_inds] = sampling_result.pos_assigned_gt_inds
+            # NPU - zhouzhou
+            pos_gt_inds = pos_gt_inds * (1.0 - pos_inds_f) + pos_assigned_gt_inds_int * pos_inds_f
+            # print('pos_gt_inds: ', pos_gt_inds.shape, pos_gt_inds.dtype, pos_gt_inds.device, pos_gt_inds)
             if gt_labels is None:
                 # Only rpn gives gt_labels as None
                 # Foreground is the first class
-                labels[pos_inds] = 0
+                # labels[pos_inds] = 0
+                # print('1 - labels: ', labels)
+                # NPU - zhouzhou
+                labels = (1.0 - pos_inds_f) * labels
+                # print('1 - labels after: ', labels)
+                # print('1 - labels: ', labels.shape, labels.dtype, labels.device)
             else:
-                labels[pos_inds] = gt_labels[
-                    sampling_result.pos_assigned_gt_inds]
+                # labels[pos_inds] = gt_labels[
+                #     sampling_result.pos_assigned_gt_inds]
+                # print('2 - labels: ', labels.dtype, labels.device, labels.shape, labels)
+                # print('2 - gt_labels', gt_labels)
+                # print('2 - pos_assigned_gt_inds_int', pos_assigned_gt_inds_int)
+                labels = gt_labels.index_select(0, pos_assigned_gt_inds_int) * pos_inds_f + (1 - pos_inds_f) * labels
+                # print('2 - labels after: ', labels)
+                # print('2 - labels: ', labels.shape, labels.dtype, labels.device)
+            labels = labels.int()
             if self.train_cfg.pos_weight <= 0:
-                label_weights[pos_inds] = 1.0
+                # label_weights[pos_inds] = 1.0
+                label_weights = label_weights + pos_inds_f_u1
+                # print('1 - label_weights: ', label_weights.shape, label_weights.dtype, label_weights.device)
             else:
-                label_weights[pos_inds] = self.train_cfg.pos_weight
+                label_weights = label_weights + pos_inds_f_u1 * self.train_cfg.pos_weight
+                # print('2 - label_weights: ', label_weights.shape, label_weights.dtype, label_weights.device)
+
 
         if len(neg_inds) > 0:
-            label_weights[neg_inds] = 1.0
+            label_weights = label_weights + neg_inds_f_u1
+            # print('3 - label_weights: ', label_weights.shape, label_weights.dtype, label_weights.device)
 
         # shadowed_labels is a tensor composed of tuples
         #  (anchor_inds, class_label) that indicate those anchors lying in the
@@ -147,13 +213,13 @@ class FSAFHead(RetinaHead):
         # the key `shadowed_labels` is defined in :obj:`CenterRegionAssigner`
         shadowed_labels = assign_result.get_extra_property('shadowed_labels')
         if shadowed_labels is not None and shadowed_labels.numel():
+            label_weights = label_weights.to('cpu')
             if len(shadowed_labels.shape) == 2:
                 idx_, label_ = shadowed_labels[:, 0], shadowed_labels[:, 1]
-                assert (labels[idx_] != label_).all(), \
-                    'One label cannot be both positive and ignored'
                 label_weights[idx_, label_] = 0
             else:
                 label_weights[shadowed_labels] = 0
+            label_weights = label_weights.npu()
 
         # map up to original set of anchors
         if unmap_outputs:
@@ -165,6 +231,8 @@ class FSAFHead(RetinaHead):
             bbox_weights = unmap(bbox_weights, num_total_anchors, inside_flags)
             pos_gt_inds = unmap(
                 pos_gt_inds, num_total_anchors, inside_flags, fill=-1)
+        
+        sampling_result = []
 
         return (labels, label_weights, bbox_targets, bbox_weights, pos_inds,
                 neg_inds, sampling_result, pos_gt_inds)
@@ -195,17 +263,45 @@ class FSAFHead(RetinaHead):
         Returns:
             dict[str, Tensor]: A dictionary of loss components.
         """
+        # print('gt_bboxes')
+        for idx,i in enumerate(gt_bboxes):
+            # print(gt_bboxes[idx].dtype)
+            gt_bboxes[idx] = gt_bboxes[idx].float()
+            num_gt = i.shape[0]
+            gt_bboxes_zero = torch.zeros(128, 4).float().npu()
+            gt_bboxes_zero[:num_gt] = gt_bboxes_zero[:num_gt] + gt_bboxes[idx]
+            gt_bboxes[idx] = gt_bboxes_zero
+        # for i in gt_bboxes:
+        #     print(i.shape)
+
+        # print('gt_labels')
+        for idx,i in enumerate(gt_labels):
+            # print(gt_labels[idx].dtype)
+            gt_labels[idx] = gt_labels[idx].int()
+            num_gt = i.shape[0]
+            gt_labels_zero = torch.zeros(128).int().npu()
+            gt_labels_zero[:num_gt] = gt_labels_zero[:num_gt] + gt_labels[idx]
+            gt_labels[idx] = gt_labels_zero
+        # for i in gt_labels:
+            # print(i.shape)
+
+        # print('gt_labels: ', gt_labels)
+
         for i in range(len(bbox_preds)):  # loop over fpn level
             # avoid 0 area of the predicted bbox
             bbox_preds[i] = bbox_preds[i].clamp(min=1e-4)
         # TODO: It may directly use the base-class loss function.
+
+        # print('loss-1')
         featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
         assert len(featmap_sizes) == self.anchor_generator.num_levels
         batch_size = len(gt_bboxes)
         device = cls_scores[0].device
+        # print('fsaf get_anchors')
         anchor_list, valid_flag_list = self.get_anchors(
             featmap_sizes, img_metas, device=device)
         label_channels = self.cls_out_channels if self.use_sigmoid_cls else 1
+        # print('fsaf get_targets')
         cls_reg_targets = self.get_targets(
             anchor_list,
             valid_flag_list,
@@ -227,10 +323,47 @@ class FSAFHead(RetinaHead):
         num_level_anchors = [anchors.size(0) for anchors in anchor_list[0]]
         # concat all level anchors and flags to a single tensor
         concat_anchor_list = []
+        # print('loss-2')
         for i in range(len(anchor_list)):
             concat_anchor_list.append(torch.cat(anchor_list[i]))
+        # print('loss-3')
         all_anchor_list = images_to_levels(concat_anchor_list,
                                            num_level_anchors)
+
+        # NPU - zhouzhou
+        # print("[FSAFHead]### loss_single ###")
+        # print('cls_scores')
+        # for i in cls_scores:
+        #     print(i.shape)
+
+        # print('bbox_preds')
+        # for i in bbox_preds:
+        #     print(i.shape)
+
+        # print('all_anchor_list')
+        # for i in all_anchor_list:
+        #     print(i.shape)
+
+        # print('labels_list')
+        # for i in labels_list:
+        #     print(i.shape)
+
+        # print('label_weights_list')
+        # for i in label_weights_list:
+        #     print(i.shape)
+
+        # print('bbox_targets_list')
+        # for i in bbox_targets_list:
+        #     print(i.shape)
+
+        # print('bbox_weights_list')
+        # for i in bbox_weights_list:
+        #     print(i.shape)
+
+        # print('bbox_preds: ', bbox_preds[0].device)
+        # print('all_anchor_list: ', all_anchor_list[0].device)
+
+        # print("[FSAFHead] ENTER loss_single")
         losses_cls, losses_bbox = multi_apply(
             self.loss_single,
             cls_scores,
@@ -246,18 +379,48 @@ class FSAFHead(RetinaHead):
         # gt index of each anchor bbox in each fpn level.
         cum_num_gts = list(np.cumsum(num_gts))  # length of batch_size
         for i, assign in enumerate(pos_assigned_gt_inds_list):
+            # NPU - zhouzhou
+            # int64 不支持加法
+            # TODO: !这里有动态shape，所以必须放在cpu上
+            assign = assign.to('cpu')
             # loop over fpn levels
             for j in range(1, batch_size):
                 # loop over batch size
                 # Convert gt indices in each img to those in the batch
                 assign[j][assign[j] >= 0] += int(cum_num_gts[j - 1])
-            pos_assigned_gt_inds_list[i] = assign.flatten()
+            # NPU - zhouzhou
+            # int64 不支持加法
+            # pos_assigned_gt_inds_list[i] = assign.flatten()
+            pos_assigned_gt_inds_list[i] = assign.flatten().npu()
             labels_list[i] = labels_list[i].flatten()
         num_gts = sum(map(len, gt_labels))  # total number of gt in the batch
         # The unique label index of each gt in the batch
         label_sequence = torch.arange(num_gts, device=device)
         # Collect the average loss of each gt in each level
         with torch.no_grad():
+            # NPU - zhouzhou
+            # print('[FSAFHead] loss: 5')
+            # stream.synchronize()
+
+            # NPU - zhouzhou
+            # print("[FSAFHead]### collect_loss_level_single ###")
+            # print('losses_cls')
+            # for i in losses_cls:
+            #     print(i.shape)
+
+            # print('losses_bbox')
+            # for i in losses_bbox:
+            #     print(i.shape)
+
+            # print('pos_assigned_gt_inds_list')
+            # for i in pos_assigned_gt_inds_list:
+            #     print(i.shape)
+
+            # print('label_sequence')
+            # for i in label_sequence:
+            #     print(i.shape)
+
+            # print("[FSAFHead] ENTER collect_loss_level_single")
             loss_levels, = multi_apply(
                 self.collect_loss_level_single,
                 losses_cls,
@@ -268,9 +431,40 @@ class FSAFHead(RetinaHead):
             loss_levels = torch.stack(loss_levels, dim=0)
             # Locate the best fpn level for loss back-propagation
             if loss_levels.numel() == 0:  # zero gt
-                argmin = loss_levels.new_empty((num_gts, ), dtype=torch.long)
+                argmin = loss_levels.new_empty((num_gts, ), dtype=torch.int)
             else:
                 _, argmin = loss_levels.min(dim=0)
+                argmin = argmin.int()
+
+        # NPU - zhouzhou
+        # print("[FSAFHead]### reweight_loss_single ###")
+
+        # print('losses_cls')
+        # for i in losses_cls:
+        #     print(i.shape)
+
+        # print('losses_bbox')
+        # for i in losses_bbox:
+        #     print(i.shape)
+
+        # print('pos_assigned_gt_inds_list')
+        # for i in pos_assigned_gt_inds_list:
+        #     print(i.shape)
+
+        # print('labels_list')
+        # for i in labels_list:
+        #     print(i.shape)
+        #     print(i.dtype)
+
+        # print('list(range(len(losses_cls)))')
+        # for i in list(range(len(losses_cls))):
+        #     print(i)
+        
+        # print('argmin')
+        # for i in argmin:
+        #     print(i.shape)
+
+        # print("[FSAFHead] ENTER reweight_loss_single")
 
         # Reweight the loss of each (anchor, label) pair, so that only those
         #  at the best gt level are back-propagated.
@@ -283,8 +477,9 @@ class FSAFHead(RetinaHead):
             list(range(len(losses_cls))),
             min_levels=argmin)
         num_pos = torch.cat(pos_inds, 0).sum().float()
-        pos_recall = self.calculate_pos_recall(cls_scores, labels_list,
-                                               pos_inds)
+        # TODO: ?
+        # pos_recall = self.calculate_pos_recall(cls_scores, labels_list,
+        #                                        pos_inds)
 
         if num_pos == 0:  # No gt
             avg_factor = num_pos + float(num_total_neg)
@@ -293,11 +488,17 @@ class FSAFHead(RetinaHead):
         for i in range(len(losses_cls)):
             losses_cls[i] /= avg_factor
             losses_bbox[i] /= avg_factor
+        # TODO: ?
+        # return dict(
+        #     loss_cls=losses_cls,
+        #     loss_bbox=losses_bbox,
+        #     num_pos=num_pos / batch_size,
+        #     pos_recall=pos_recall)
         return dict(
             loss_cls=losses_cls,
             loss_bbox=losses_bbox,
             num_pos=num_pos / batch_size,
-            pos_recall=pos_recall)
+            pos_recall=torch.tensor(0.0, device=losses_cls[0].device))
 
     def calculate_pos_recall(self, cls_scores, labels_list, pos_inds):
         """Calculate positive recall with score threshold.
@@ -316,16 +517,22 @@ class FSAFHead(RetinaHead):
         """
         with torch.no_grad():
             num_class = self.num_classes
+            # NPU - zhouzhou
+            # 转到 cpu 上操作，因为 torch.cat 不支持空 tensor
             scores = [
-                cls.permute(0, 2, 3, 1).reshape(-1, num_class)[pos]
+                cls.permute(0, 2, 3, 1).reshape(-1, num_class)[pos].to('cpu')
                 for cls, pos in zip(cls_scores, pos_inds)
             ]
+            # NPU - zhouzhou
+            # 转到 cpu 上操作，因为 torch.cat 不支持空 tensor
             labels = [
-                label.reshape(-1)[pos]
+                label.reshape(-1)[pos].to('cpu')
                 for label, pos in zip(labels_list, pos_inds)
             ]
-            scores = torch.cat(scores, dim=0)
-            labels = torch.cat(labels, dim=0)
+            # NPU - zhouzhou
+            # 转到 cpu 上操作，因为 torch.cat 不支持空 tensor
+            scores = torch.cat(scores, dim=0).npu()
+            labels = torch.cat(labels, dim=0).npu()
             if self.use_sigmoid_cls:
                 scores = scores.sigmoid()
             else:
@@ -359,9 +566,11 @@ class FSAFHead(RetinaHead):
         #  to ensure it will not be chosen to back-propagate gradient
         losses_ = loss.new_full(labels_seq.shape, 1e6)
         for i, l in enumerate(labels_seq):
-            match = assigned_gt_inds == l
-            if match.any():
-                losses_[i] = loss[match].mean()
+            match_mask = (assigned_gt_inds == l).float()
+            match_mask_sum = match_mask.sum()
+            if match_mask_sum > 0:
+                losses_[i] = (loss * match_mask).sum() / match_mask_sum
+
         return losses_,
 
     def reweight_loss_single(self, cls_loss, reg_loss, assigned_gt_inds,
@@ -395,24 +604,52 @@ class FSAFHead(RetinaHead):
         loc_weight = torch.ones_like(reg_loss)
         cls_weight = torch.ones_like(cls_loss)
         pos_flags = assigned_gt_inds >= 0  # positive pixel flag
-        pos_indices = torch.nonzero(pos_flags, as_tuple=False).flatten()
+        pos_flags_f = pos_flags.float()
+        pos_flags_f_u1 = pos_flags_f.unsqueeze(1)
+
+        # pos_indices = torch.nonzero(pos_flags, as_tuple=False).flatten()
 
         if pos_flags.any():  # pos pixels exist
-            pos_assigned_gt_inds = assigned_gt_inds[pos_flags]
-            zeroing_indices = (min_levels[pos_assigned_gt_inds] != level)
-            neg_indices = pos_indices[zeroing_indices]
+            # # 源代码
+            # pos_assigned_gt_inds = assigned_gt_inds[pos_flags]
+            # zeroing_indices = (min_levels[pos_assigned_gt_inds] != level)
+            # neg_indices = pos_indices[zeroing_indices]
+
+            # # 王老师
+            pos_assigned_gt_inds = assigned_gt_inds
+            zeroing_indices_init = min_levels.index_select(0, pos_assigned_gt_inds.abs().int())
+            zeroing_indices = (zeroing_indices_init != level).float() * pos_flags_f
+            # NPU - zhouzhou
+            neg_indices = pos_flags_f * zeroing_indices
+
+            # 我理解的逻辑
+            # pos_assigned_gt_inds = assigned_gt_inds * pos_flags_f
+            # zeroing_indices_init = min_levels.index_select(0, pos_assigned_gt_inds.int())
+            # zeroing_indices = (zeroing_indices_init != level).float()
+            # neg_indices = pos_flags * zeroing_indices
+            # print('neg_indices: ', neg_indices.shape, neg_indices)
+            
 
             if neg_indices.numel():
-                pos_flags[neg_indices] = 0
-                loc_weight[neg_indices] = 0
+                neg_indices_reversed = 1.0 - neg_indices
+                pos_flags_f = pos_flags_f * neg_indices_reversed
+                loc_weight = loc_weight * neg_indices_reversed
+
+                labels_one_hot = torch_npu.npu_one_hot(labels, -1, 80, 1.0, 0.0)
+                # print('labels_one_hot: ', labels_one_hot.shape, labels_one_hot)
                 # Only the weight corresponding to the label is
                 #  zeroed out if not selected
-                zeroing_labels = labels[neg_indices]
-                assert (zeroing_labels >= 0).all()
-                cls_weight[neg_indices, zeroing_labels] = 0
+                zeroing_labels = labels_one_hot * neg_indices.unsqueeze(1)
+                # print('zeroing_labels: ', zeroing_labels.shape, zeroing_labels)
+                # assert (zeroing_labels >= 0).all()
+                # TODO: ?
+                # cls_weight[neg_indices, zeroing_labels] = 0
+                cls_weight = cls_weight - zeroing_labels
+                # print('cls_weight: ', cls_weight.shape, cls_weight)
 
+        # print('cls_loss: ', cls_loss.shape, cls_loss)
         # Weighted loss for both cls and reg loss
         cls_loss = weight_reduce_loss(cls_loss, cls_weight, reduction='sum')
         reg_loss = weight_reduce_loss(reg_loss, loc_weight, reduction='sum')
 
-        return cls_loss, reg_loss, pos_flags
+        return cls_loss, reg_loss, pos_flags_f

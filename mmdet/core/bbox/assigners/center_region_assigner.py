@@ -192,6 +192,15 @@ class CenterRegionAssigner(BaseAssigner):
         # Rule out center effective positive pixels
         is_bbox_in_gt_shadow &= (~is_bbox_in_gt_core)
 
+        gt_bboxes = gt_bboxes.to('cpu')
+        bboxes = bboxes.to('cpu')
+        is_bbox_in_gt_core = is_bbox_in_gt_core.to('cpu')
+        is_bbox_in_gt_shadow = is_bbox_in_gt_shadow.to('cpu')
+        if gt_bboxes_ignore is not None:
+            gt_bboxes_ignore = gt_bboxes_ignore.to('cpu')
+        if gt_labels is not None:
+            gt_labels = gt_labels.to('cpu').long()
+
         num_gts, num_bboxes = gt_bboxes.size(0), bboxes.size(0)
         if num_gts == 0 or num_bboxes == 0:
             # If no gts exist, assign all pixels to negative
