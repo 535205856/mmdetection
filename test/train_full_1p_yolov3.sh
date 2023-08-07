@@ -22,7 +22,7 @@ data_path=""
 Network="YoloV3_ID1790_for_PyTorch"
 
 #训练batch_size,,需要模型审视修改
-batch_size=96
+batch_size=64
 
 # 指定训练所使用的npu device卡id
 device_id=0
