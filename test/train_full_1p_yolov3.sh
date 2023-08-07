@@ -22,7 +22,7 @@ data_path=""
 Network="YoloV3_ID1790_for_PyTorch"
 
 #训练batch_size,,需要模型审视修改
-batch_size=64
+batch_size=96
 
 # 指定训练所使用的npu device卡id
 device_id=0
@@ -96,6 +96,7 @@ chmod +x ${cur_path}/tools/dist_train.sh
 start_time=$(date +%s)
 
 sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
+sed -i "s|total_epochs = 273|total_epochs = 30|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
 
 #执行训练脚本，以下传参不需要修改，其他需要模型审视修改
 python3 ./tools/train_npu.py configs/yolo/yolov3_d53_320_273e_coco.py \
@@ -108,6 +109,8 @@ python3 ./tools/train_npu.py configs/yolo/yolov3_d53_320_273e_coco.py \
 wait
 
 sed -i "s|$data_path/|data/coco/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
+
+sed -i "s|total_epochs = 30|total_epochs = 273|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
 
 #训练结束时间，不需要修改
 end_time=$(date +%s)
