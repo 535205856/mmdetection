@@ -24,7 +24,7 @@ from mmdet.utils import collect_env, get_root_logger
 def parse_args():
     parser = argparse.ArgumentParser(description='Train a detector')
     parser.add_argument('config', help='train config file path')
-    parser.add_argument('--work-dir', help='the dir to save logs and models')
+    parser.add_argument('--work_dir', help='the dir to save logs and models')
     parser.add_argument('--hf32', default=False, action='store_true', help='enable_hi_float_32_execution')
     parser.add_argument('--fp32', default=False, action='store_true', help='disable_hi_float_32_execution')
     parser.add_argument(
