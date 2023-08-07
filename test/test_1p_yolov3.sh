@@ -90,7 +90,7 @@ python3 ./tools/test_npu.py ./configs/yolo/yolov3_d53_320_273e_coco.py \
   --cfg-options optimizer.lr=0.001 data.samples_per_gpu=${batch_size} \
   --local_rank 0 \
   --out ${test_path_dir}/output/yolov3/eval/$ASCEND_DEVICE_ID/test_out.pkl   \
-  --eval bbox  --launcher pytorch > ${test_path_dir}/output/yolov3/eval/${ASCEND_DEVICE_ID}/test_${ASCEND_DEVICE_ID}.log 2>&1 &
+  --eval bbox  > ${test_path_dir}/output/yolov3/eval/${ASCEND_DEVICE_ID}/test_${ASCEND_DEVICE_ID}.log 2>&1 &
 wait
 ##################获取训练数据################
 # 训练结束时间，不需要修改
