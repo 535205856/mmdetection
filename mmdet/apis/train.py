@@ -137,6 +137,7 @@ def train_detector(model,
         model = MMDataParallel(
             model, device_ids=cfg.npu_ids)
     if cfg.profiling == "True":
+        print("----------- cfg.profiling == True runner is RunnerProfiling")
         runner = RunnerProfiling(
             model,
             optimizer=optimizer,
@@ -145,6 +146,7 @@ def train_detector(model,
             meta=meta,
             max_iters=cfg.stop_step)
     else:
+        print("----------- cfg.profiling == False runner is EpochBasedRunner")
         runner = EpochBasedRunner(
             model,
             optimizer=optimizer,
