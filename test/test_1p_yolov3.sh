@@ -2,11 +2,19 @@
 
 ################基础配置参数，需要模型审视修改##################
 # 必选字段(必须在此处定义的参数): Network batch_size RANK_SIZE
-# 网络名称，同目录名称
-Network="FOTS"
-
 # 数据集路径,保持为空,不需要修改
-data_path="./ch4_test_images"
+data_path=""
+
+#网络名称,同目录名称,需要模型审视修改
+Network="YoloV3_ID1790_for_PyTorch"
+
+#训练batch_size,,需要模型审视修改
+batch_size=64
+
+
+#维测参数，precision_mode需要模型审视修改
+precision_mode="allow_mix_precision"
+
 
 # 指定测试所使用的npu device卡id
 device_id=0
@@ -68,12 +76,30 @@ start_time=$(date +%s)
 check_etp_flag=`env | grep etp_running_flag`
 etp_flag=`echo ${check_etp_flag#*=}`
 if [ x"${etp_flag}" != x"true" ];then
-    source ${test_path_dir}/set_npu_env.sh
+    source ${test_path_dir}/env_npu.sh
 fi
+
+sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
 
 #python3 ./tools/test.py ./configs/yolo/yolov3_d53_320_273e_coco.py ./work_dirs/yolov3_d53_320_273e_coco/latest.pth --eval bbox
 
 #python3 ./tools/test.py --images-folder ${data_path}/ch4_test_images --output-folder ./res/ --checkpoint ./runs/best_checkpoint.pt && zip -jmq ./runs/u.zip ./res/* && python3 ./script.py -g=${data_path}/gt.zip -s=./runs/u.zip
 
-python3 ./tools/test_npu.py ./configs/yolo/yolov3_d53_320_273e_coco.py ./work_dirs/yolov3_d53_320_273e_coco/latest.pth --out ${test_path_dir}/output/yolov3/eval/$ASCEND_DEVICE_ID   --eval bbox  --launcher pytorch
+python3 ./tools/test_npu.py ./configs/yolo/yolov3_d53_320_273e_coco.py \
+  ./work_dirs/yolov3_d53_320_273e_coco/latest.pth \
+  --cfg-options optimizer.lr=0.001 data.samples_per_gpu=${batch_size} \
+  --out ${test_path_dir}/output/yolov3/eval/$ASCEND_DEVICE_ID   \
+  --eval bbox  --launcher pytorch > ${test_path_dir}/output/yolov3/eval/${ASCEND_DEVICE_ID}/test_${ASCEND_DEVICE_ID}.log 2>&1 &
+wait
+##################获取训练数据################
+# 训练结束时间，不需要修改
+end_time=$(date +%s)
+e2e_time=$(( $end_time - $start_time ))
 
+# 结果打印，不需要修改
+echo "------------------ Final result ------------------"
+# 输出性能FPS，需要模型审视修改
+Accuracy=`grep -a 'Accuracy'  ${test_path_dir}/output/yolov3/eval/${ASCEND_DEVICE_ID}/test_${ASCEND_DEVICE_ID}.log|awk -F " " '{print $NF}'`
+# 打印，不需要修改
+echo "Final Train Accuracy : $Accuracy"
+echo "E2E Training Duration sec : $e2e_time"
