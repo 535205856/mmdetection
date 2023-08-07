@@ -146,13 +146,15 @@ def train_detector(model,
             meta=meta,
             max_iters=cfg.stop_step)
     else:
-        print("----------- cfg.profiling == False runner is EpochBasedRunner")
+        print("----------- cfg.profiling == False runner is EpochBasedRunner cfg.data.samples_per_gpu is {}".format(cfg.data.samples_per_gpu))
         runner = EpochBasedRunner(
             model,
             optimizer=optimizer,
             work_dir=cfg.work_dir,
             logger=logger,
-            meta=meta)
+            meta=meta,
+            max_iters=cfg.max_step,
+            num_of_gpus=cfg.data.samples_per_gpu)
     # an ugly workaround to make .log and .log.json filenames the same
     runner.timestamp = timestamp
 
