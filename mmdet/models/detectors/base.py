@@ -10,7 +10,7 @@ from mmcv.runner import auto_fp16
 from mmcv.utils import print_log
 
 from mmdet.utils import get_root_logger
-
+from mmcv.parallel import DataContainer
 
 class BaseDetector(nn.Module, metaclass=ABCMeta):
     """Base class for detectors."""
@@ -147,6 +147,9 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         # then used for the transformer_head.
         for img, img_meta in zip(imgs, img_metas):
             batch_size = len(img_meta)
+            # rick 230808 多卡评估时的img类型是 DataContainer 后面的 .size()处理 报错
+            if isinstance(img, DataContainer):
+                img = img.data
             print("-------------------- forward_test img {}".format(img))
             for img_id in range(batch_size):
                 img_meta[img_id]['batch_intput_shape'] = tuple(img.size()[-2:])
