@@ -128,12 +128,14 @@ def train_detector(model,
         find_unused_parameters = cfg.get('find_unused_parameters', False)
         # Sets the `find_unused_parameters` parameter in
         # torch.nn.parallel.DistributedDataParallel
+        print("-------------train_detector torch.npu.current_device() is {}".format(torch.npu.current_device()))
         model = MMDistributedDataParallel(
             model,
             device_ids=[torch.npu.current_device()],
             broadcast_buffers=False,
             find_unused_parameters=find_unused_parameters)
     else:
+        print("-------------train_detector cfg.npu_ids is {}".format(cfg.npu_ids))
         model = MMDataParallel(
             model, device_ids=cfg.npu_ids)
     if cfg.profiling == "True":
