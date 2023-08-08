@@ -136,6 +136,7 @@ class GridAssigner(BaseAssigner):
         flag = flag[None, :]
         if GridAssigner.g_neg_one is None:
             GridAssigner.g_neg_one = -1. * torch.ones_like(overlaps)
+        print("----------- GridAssigner.g_neg_one.shape {}, overlaps.shape {}".format(GridAssigner.g_neg_one.shape, overlaps.shape))
         assert GridAssigner.g_neg_one.shape == overlaps.shape
         overlaps = torch.where(flag, overlaps, GridAssigner.g_neg_one)
 

@@ -109,7 +109,6 @@ python3 ./tools/train_npu.py configs/yolo/yolov3_d53_320_273e_coco.py \
 wait
 
 sed -i "s|$data_path/|data/coco/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
-
 sed -i "s|total_epochs = 30|total_epochs = 273|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
 
 #训练结束时间，不需要修改

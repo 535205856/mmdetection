@@ -107,6 +107,7 @@ class SingleStageDetector(BaseDetector):
             gt_bboxes[i] = gt_bboxes[i].npu()
         for i in range(len(gt_labels)):
             gt_labels[i] = gt_labels[i].npu()
+        super(SingleStageDetector, self).forward_train(img, img_metas)
         x = self.extract_feat(img)
         losses = self.bbox_head.forward_train(x, img_metas, gt_bboxes,
                                               gt_labels, gt_bboxes_ignore)
