@@ -73,13 +73,13 @@ class GridAssigner(BaseAssigner):
             :obj:`AssignResult`: The assign result.
         """
         num_gts, num_bboxes = gt_bboxes.size(0), bboxes.size(0)
-        print("----------- GridAssignergt output gt_bboxes.size(0)  {}, bboxes.size(0) {}".format(num_gts, num_bboxes))
-        print("----------- GridAssigner bboxes。shape {}, gt_bboxes.shape {}".format(bboxes , gt_bboxes ))
+        # print("----------- GridAssignergt output gt_bboxes.size(0)  {}, bboxes.size(0) {}".format(num_gts, num_bboxes))
+        # print("----------- GridAssigner bboxes。shape {}, gt_bboxes.shape {}".format(bboxes , gt_bboxes ))
         # compute iou between all gt and bboxes
         # overlaps = self.iou_calculator(gt_bboxes, bboxes)
         overlaps = torch_npu.npu_ptiou(bboxes, gt_bboxes)
 
-        print("----------- GridAssigner  overlaps.shape {}".format( overlaps.shape))
+        # print("----------- GridAssigner  overlaps.shape {}".format( overlaps.shape))
         # 1. assign -1 by default
         assigned_gt_inds = overlaps.new_full((num_bboxes, ),
                                              -1,
@@ -137,7 +137,7 @@ class GridAssigner(BaseAssigner):
         flag = flag[None, :]
         if GridAssigner.g_neg_one is None:
             GridAssigner.g_neg_one = -1. * torch.ones_like(overlaps)
-        print("----------- GridAssigner.g_neg_one.shape {}, overlaps.shape {}".format(GridAssigner.g_neg_one.shape, overlaps.shape))
+        # print("----------- GridAssigner.g_neg_one.shape {}, overlaps.shape {}".format(GridAssigner.g_neg_one.shape, overlaps.shape))
         assert GridAssigner.g_neg_one.shape == overlaps.shape
         overlaps = torch.where(flag, overlaps, GridAssigner.g_neg_one)
 
