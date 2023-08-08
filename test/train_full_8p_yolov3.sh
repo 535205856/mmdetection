@@ -24,7 +24,7 @@ data_path=""
 Network="YoloV3_ID1790_for_PyTorch"
 
 #训练batch_size,,需要模型审视修改
-batch_size=64
+batch_size=72
 
 #维测参数，precision_mode需要模型审视修改
 precision_mode="allow_mix_precision"
@@ -93,7 +93,8 @@ chmod +x ${cur_path}/tools/dist_train.sh
 start_time=$(date +%s)
 
 sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
-
+sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_320_273e_coco.py
+sed -i "s|total_epochs = 273|total_epochs = 30|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
 #执行训练脚本，以下传参不需要修改，其他需要模型审视修改
 export RANK_SIZE=8
 
@@ -126,7 +127,9 @@ done
 
 wait
 
+sed -i "s|data/coco/|$data_path/|g" configs/yolo/yolov3_d53_320_273e_coco.py
 sed -i "s|$data_path/|data/coco/|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
+sed -i "s|total_epochs = 30|total_epochs = 273|g" configs/yolo/yolov3_d53_mstrain-608_273e_coco.py
 #8p情况下仅0卡(主节点)有完整日志,因此后续日志提取仅涉及0卡
 ASCEND_DEVICE_ID=0
 
