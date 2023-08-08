@@ -145,6 +145,8 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         # NOTE the batched image size information may be useful, e.g.
         # in DETR, this is needed for the construction of masks, which is
         # then used for the transformer_head.
+        new_imgs =[]
+        new_img_metas = []
         for img, img_meta in zip(imgs, img_metas):
             batch_size = len(img_meta)
             # print("-------------------- forward_test img {}".format(img))
@@ -153,13 +155,19 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
             if isinstance(img, DataContainer):
                 # print("-------------------- forward_test img.data len {}".format(len(img.data)))
                 img = img.data[0]
+                img_meta = img_meta.data[0]
+                batch_size = len(img_meta)
                 # print("-------------------- forward_test img {}".format(img))
-                for img_id in range(batch_size):
-                    img_meta.data[0][img_id]['batch_intput_shape'] = tuple(img.size()[-2:])
-            else:
                 for img_id in range(batch_size):
                     img_meta[img_id]['batch_intput_shape'] = tuple(img.size()[-2:])
 
+                new_imgs.append(img)
+                new_img_metas.append(img_meta)
+            else:
+                for img_id in range(batch_size):
+                    img_meta[img_id]['batch_intput_shape'] = tuple(img.size()[-2:])
+                new_imgs.append(img)
+                new_img_metas.append(img_meta)
         if num_augs == 1:
             # proposals (List[List[Tensor]]): the outer list indicates
             # test-time augs (multiscale, flip, etc.) and the inner list
@@ -168,7 +176,8 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
             # proposals.
             if 'proposals' in kwargs:
                 kwargs['proposals'] = kwargs['proposals'][0]
-            return self.simple_test(imgs[0], img_metas[0], **kwargs)
+            # return self.simple_test(imgs[0], img_metas[0], **kwargs)
+            return self.simple_test(new_imgs[0], new_img_metas[0], **kwargs)
         else:
             assert imgs[0].size(0) == 1, 'aug test does not support ' \
                                          'inference with batch size ' \
