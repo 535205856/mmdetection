@@ -74,11 +74,12 @@ class GridAssigner(BaseAssigner):
         """
         num_gts, num_bboxes = gt_bboxes.size(0), bboxes.size(0)
 
+        print("----------- GridAssigner bboxes。shape {}, gt_bboxes.shape {}".format(bboxes.shape, gt_bboxes.shape))
         # compute iou between all gt and bboxes
         # overlaps = self.iou_calculator(gt_bboxes, bboxes)
         overlaps = torch_npu.npu_ptiou(bboxes, gt_bboxes)
 
-
+        print("----------- GridAssigner  overlaps.shape {}".format( overlaps.shape))
         # 1. assign -1 by default
         assigned_gt_inds = overlaps.new_full((num_bboxes, ),
                                              -1,
