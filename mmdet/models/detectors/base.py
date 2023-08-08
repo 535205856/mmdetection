@@ -147,13 +147,13 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         # then used for the transformer_head.
         for img, img_meta in zip(imgs, img_metas):
             batch_size = len(img_meta)
-            print("-------------------- forward_test img {}".format(img))
-            print("-------------------- forward_test img_meta {}".format(img_meta))
+            # print("-------------------- forward_test img {}".format(img))
+            # print("-------------------- forward_test img_meta {}".format(img_meta))
             # rick 230808 多卡评估时的img类型是 DataContainer 后面的 .size()处理 报错
             if isinstance(img, DataContainer):
-                print("-------------------- forward_test img.data len {}".format(len(img.data)))
+                # print("-------------------- forward_test img.data len {}".format(len(img.data)))
                 img = img.data[0]
-                print("-------------------- forward_test img {}".format(img))
+                # print("-------------------- forward_test img {}".format(img))
                 for img_id in range(batch_size):
                     img_meta.data[0][img_id]['batch_intput_shape'] = tuple(img.size()[-2:])
             else:

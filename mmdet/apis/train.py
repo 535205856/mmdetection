@@ -178,10 +178,12 @@ def train_detector(model,
     if validate:
         # Support batch_size > 1 in validation
         val_samples_per_gpu = cfg.data.val.pop('samples_per_gpu', 1)
+        print("-------------val_samples_per_gpu is {}".format(val_samples_per_gpu))
         if val_samples_per_gpu > 1:
             # Replace 'ImageToTensor' to 'DefaultFormatBundle'
             cfg.data.val.pipeline = replace_ImageToTensor(
                 cfg.data.val.pipeline)
+            print("----------- replace_ImageToTensor {}".format(cfg.data.val.pipeline))
         val_dataset = build_dataset(cfg.data.val, dict(test_mode=True))
         val_dataloader = build_dataloader(
             val_dataset,
