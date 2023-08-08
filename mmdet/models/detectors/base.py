@@ -147,6 +147,7 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         # then used for the transformer_head.
         for img, img_meta in zip(imgs, img_metas):
             batch_size = len(img_meta)
+            print("-------------------- forward_test img {}".format(img))
             for img_id in range(batch_size):
                 img_meta[img_id]['batch_intput_shape'] = tuple(img.size()[-2:])
 
