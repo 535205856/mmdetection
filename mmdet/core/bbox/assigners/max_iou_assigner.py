@@ -113,7 +113,9 @@ class MaxIoUAssigner(BaseAssigner):
                 ignore_overlaps = self.iou_calculator(
                     gt_bboxes_ignore, bboxes, mode='iof')
                 ignore_max_overlaps, _ = ignore_overlaps.max(dim=0)
-            overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = -1
+            # overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = -1
+            # 230809 临时修改
+            overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = 0
 
         assign_result = self.assign_wrt_overlaps(overlaps, gt_labels)
         if assign_on_cpu:
@@ -188,7 +190,7 @@ class MaxIoUAssigner(BaseAssigner):
         print("------------------argmax_overlaps is {}".format(argmax_overlaps))
         print("------------------assigned_gt_inds is {}".format(assigned_gt_inds))
         print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]))
-        print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]+1))
+        print("------------------argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps[pos_inds]+1))
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
         print("------------------ argmax_overlaps[pos_inds] + 1 after")
         if self.match_low_quality:
