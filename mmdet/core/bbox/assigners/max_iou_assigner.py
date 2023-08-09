@@ -187,6 +187,8 @@ class MaxIoUAssigner(BaseAssigner):
         print("------------------pos_inds is {}".format(pos_inds))
         print("------------------argmax_overlaps is {}".format(argmax_overlaps))
         print("------------------assigned_gt_inds is {}".format(assigned_gt_inds))
+        print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]))
+        print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]+1))
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
         print("------------------ argmax_overlaps[pos_inds] + 1 after")
         if self.match_low_quality:
