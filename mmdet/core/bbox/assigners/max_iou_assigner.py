@@ -178,11 +178,17 @@ class MaxIoUAssigner(BaseAssigner):
 
         # 3. assign positive: above positive IoU threshold
         pos_inds = max_overlaps >= self.pos_iou_thr
+        # ------------------pos_inds is tensor([False, False, False,  ..., False, False, False], device='npu:0')
+        # ------------------argmax_overlaps is tensor([0, 0, 0,  ..., 1, 1, 1], device='npu:0')
+        # ------------------assigned_gt_inds is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
+        # ------------------pos_inds is tensor([False, False, False,  ..., False, False, False], device='npu:0')
+        # ------------------argmax_overlaps is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
+        # ------------------assigned_gt_inds is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
         print("------------------pos_inds is {}".format(pos_inds))
         print("------------------argmax_overlaps is {}".format(argmax_overlaps))
         print("------------------assigned_gt_inds is {}".format(assigned_gt_inds))
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
-
+        print("------------------ argmax_overlaps[pos_inds] + 1 after")
         if self.match_low_quality:
             # Low-quality matching will overwirte the assigned_gt_inds assigned
             # in Step 3. Thus, the assigned gt might not be the best one for
