@@ -91,7 +91,6 @@ class MaxIoUAssigner(BaseAssigner):
             >>> assert torch.all(assign_result.gt_inds == expected_gt_inds)
         """
         assign_on_cpu = True if (self.gpu_assign_thr > 0) and (gt_bboxes.shape[0] > self.gpu_assign_thr) else False
-        # assign_on_cpu = True
         # compute overlap and assign gt on CPU when number of GT is large
         if assign_on_cpu:
             device = bboxes.device
@@ -114,8 +113,7 @@ class MaxIoUAssigner(BaseAssigner):
                 ignore_overlaps = self.iou_calculator(
                     gt_bboxes_ignore, bboxes, mode='iof')
                 ignore_max_overlaps, _ = ignore_overlaps.max(dim=0)
-            # overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = -1
-            overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = -999
+            overlaps[:, ignore_max_overlaps > self.ignore_iof_thr] = -1
 
         assign_result = self.assign_wrt_overlaps(overlaps, gt_labels)
         if assign_on_cpu:
@@ -139,11 +137,8 @@ class MaxIoUAssigner(BaseAssigner):
         num_gts, num_bboxes = overlaps.size(0), overlaps.size(1)
 
         # 1. assign -1 by default
-        # assigned_gt_inds = overlaps.new_full((num_bboxes, ),
-        #                                      -1,
-        #                                      dtype=torch.long)
         assigned_gt_inds = overlaps.new_full((num_bboxes, ),
-                                             -999,
+                                             -1,
                                              dtype=torch.long)
 
         if num_gts == 0 or num_bboxes == 0:
@@ -155,11 +150,8 @@ class MaxIoUAssigner(BaseAssigner):
             if gt_labels is None:
                 assigned_labels = None
             else:
-                # assigned_labels = overlaps.new_full((num_bboxes, ),
-                #                                     -1,
-                #                                     dtype=torch.long)
                 assigned_labels = overlaps.new_full((num_bboxes, ),
-                                                    -999,
+                                                    -1,
                                                     dtype=torch.long)
             return AssignResult(
                 num_gts,
@@ -186,27 +178,8 @@ class MaxIoUAssigner(BaseAssigner):
 
         # 3. assign positive: above positive IoU threshold
         pos_inds = max_overlaps >= self.pos_iou_thr
-        # ------------------pos_inds is tensor([False, False, False,  ..., False, False, False], device='npu:0')
-        # ------------------argmax_overlaps is tensor([0, 0, 0,  ..., 1, 1, 1], device='npu:0')
-        # ------------------assigned_gt_inds is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
-        # ------------------pos_inds is tensor([False, False, False,  ..., False, False, False], device='npu:0')
-        # ------------------argmax_overlaps is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
-        # ------------------assigned_gt_inds is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
-        # print("------------------pos_inds is {}".format(pos_inds))
-        # print("------------------argmax_overlaps is {}".format(argmax_overlaps))
-        # print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds).cpu().numpy()))
-        # print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds).cpu().numpy()))
-        # print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps).cpu().numpy()))
-        # print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds)))
-        # print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds)))
-        # print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps)))
-        # print("------------------.cpu().numpy() argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]))
-        # print("------------------.cpu().numpy() argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]+1))
-        print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]))
-        print("------------------argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps[pos_inds]+1))
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
 
-        print("------------------ argmax_overlaps[pos_inds] + 1-------after----------------")
         if self.match_low_quality:
             # Low-quality matching will overwirte the assigned_gt_inds assigned
             # in Step 3. Thus, the assigned gt might not be the best one for
@@ -225,8 +198,7 @@ class MaxIoUAssigner(BaseAssigner):
                         assigned_gt_inds[gt_argmax_overlaps[i]] = i + 1
 
         if gt_labels is not None:
-            # assigned_labels = assigned_gt_inds.new_full((num_bboxes, ), -1)
-            assigned_labels = assigned_gt_inds.new_full((num_bboxes, ), -999)
+            assigned_labels = assigned_gt_inds.new_full((num_bboxes, ), -1)
             pos_inds = torch.nonzero(
                 assigned_gt_inds > 0, as_tuple=False).squeeze()
             if pos_inds.numel() > 0:
