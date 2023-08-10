@@ -189,9 +189,9 @@ class MaxIoUAssigner(BaseAssigner):
         print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds).cpu().numpy()))
         print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds).cpu().numpy()))
         print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps).cpu().numpy()))
-        print("------------------.cpu().numpy() argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.cpu().numpy()[pos_inds]))
+        print("------------------.cpu().numpy() argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]))
         # print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.[pos_inds]))
-        print("------------------.cpu().numpy() argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps.cpu().numpy()[pos_inds]+1))
+        print("------------------.cpu().numpy() argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]+1))
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
 
         print("------------------ argmax_overlaps[pos_inds] + 1-------after----------------")
