@@ -90,7 +90,8 @@ class MaxIoUAssigner(BaseAssigner):
             >>> expected_gt_inds = torch.LongTensor([1, 0])
             >>> assert torch.all(assign_result.gt_inds == expected_gt_inds)
         """
-        assign_on_cpu = True if (self.gpu_assign_thr > 0) and (gt_bboxes.shape[0] > self.gpu_assign_thr) else False
+        # assign_on_cpu = True if (self.gpu_assign_thr > 0) and (gt_bboxes.shape[0] > self.gpu_assign_thr) else False
+        assign_on_cpu = True
         # compute overlap and assign gt on CPU when number of GT is large
         if assign_on_cpu:
             device = bboxes.device
@@ -186,12 +187,16 @@ class MaxIoUAssigner(BaseAssigner):
         # ------------------assigned_gt_inds is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
         print("------------------pos_inds is {}".format(pos_inds))
         # print("------------------argmax_overlaps is {}".format(argmax_overlaps))
-        print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds).cpu().numpy()))
-        print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds).cpu().numpy()))
-        print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps).cpu().numpy()))
-        print("------------------.cpu().numpy() argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]))
-        # print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.[pos_inds]))
-        print("------------------.cpu().numpy() argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]+1))
+        # print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds).cpu().numpy()))
+        # print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds).cpu().numpy()))
+        # print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps).cpu().numpy()))
+        print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds)))
+        print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds)))
+        print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps)))
+        # print("------------------.cpu().numpy() argmax_overlaps[pos_inds] is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]))
+        # print("------------------.cpu().numpy() argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps.cpu().numpy()[pos_inds.cpu().numpy()]+1))
+        print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]))
+        print("------------------argmax_overlaps[pos_inds] + 1 is {}".format(argmax_overlaps[pos_inds]+1))
         assigned_gt_inds[pos_inds] = argmax_overlaps[pos_inds] + 1
 
         print("------------------ argmax_overlaps[pos_inds] + 1-------after----------------")
