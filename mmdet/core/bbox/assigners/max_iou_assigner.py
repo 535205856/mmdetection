@@ -186,7 +186,7 @@ class MaxIoUAssigner(BaseAssigner):
         # ------------------assigned_gt_inds is tensor([0, 0, 0,  ..., 0, 0, 0], device='npu:0')
         print("------------------pos_inds is {}".format(pos_inds))
         # print("------------------argmax_overlaps is {}".format(argmax_overlaps))
-        print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds)).numpy())
+        print("------------------zero assigned_gt_inds is {}".format(torch.zero_(assigned_gt_inds).numpy()))
         print("------------------zero pos_inds is {}".format(torch.zero_(pos_inds).numpy()))
         print("------------------zero argmax_overlaps is {}".format(torch.zero_(argmax_overlaps).numpy()))
         print("------------------argmax_overlaps[pos_inds] is {}".format(argmax_overlaps[pos_inds]))
