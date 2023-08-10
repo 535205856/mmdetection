@@ -50,8 +50,8 @@ if [[ $data_path == "" ]];then
 fi
 
 # 配置数据集路径
-sed -i "s|\"coco_2017_train\": (\"coco/train2017\", \"coco/annotations/instances_train2017.json\")|\"coco_2017_train\": (\"$data_path/train2017\", \"$data_path/annotations/instances_train2017.json\")|g" $cur_path/detectron2/data/datasets/builtin.py
-sed -i "s|\"coco_2017_val\": (\"coco/val2017\", \"coco/annotations/instances_val2017.json\")|\"coco_2017_val\": (\"$data_path/val2017\", \"$data_path/annotations/instances_val2017.json\")|g" $cur_path/detectron2/data/datasets/builtin.py
+sed -i "s|\"coco_2017_train\": (\"coco/train2017\", \"coco/annotations/instances_train2017.json\")|\"coco_2017_train\": (\"$data_path/train2017\", \"$data_path/annotations/instances_train2017.json\")|g" $cur_path/detectron2/detectron2/data/datasets/builtin.py
+sed -i "s|\"coco_2017_val\": (\"coco/val2017\", \"coco/annotations/instances_val2017.json\")|\"coco_2017_val\": (\"$data_path/val2017\", \"$data_path/annotations/instances_val2017.json\")|g" $cur_path/detectron2/detectron2/data/datasets/builtin.py
 sed -i "s|WEIGHTS: \"detectron2://ImageNetPretrained/MSRA/R-101.pkl\"|WEIGHTS: \"$data_path/R-101.pkl\"|g" $cur_path/configs_yaml/faster_rcnn/faster_rcnn_R_101_FPN_3x.yaml
 wait
 
@@ -135,8 +135,8 @@ else
 fi
 wait
 #修改参数
-sed -i "s|\"coco_2017_train\": (\"$data_path/train2017\", \"$data_path/annotations/instances_train2017.json\")|\"coco_2017_train\": (\"coco/train2017\", \"coco/annotations/instances_train2017.json\")|g" $cur_path/detectron2/data/datasets/builtin.py
-sed -i "s|\"coco_2017_val\": (\"$data_path/val2017\", \"$data_path/annotations/instances_val2017.json\")|\"coco_2017_val\": (\"coco/val2017\", \"coco/annotations/instances_val2017.json\")|g" $cur_path/detectron2/data/datasets/builtin.py
+sed -i "s|\"coco_2017_train\": (\"$data_path/train2017\", \"$data_path/annotations/instances_train2017.json\")|\"coco_2017_train\": (\"coco/train2017\", \"coco/annotations/instances_train2017.json\")|g" $cur_path/detectron2/detectron2/data/datasets/builtin.py
+sed -i "s|\"coco_2017_val\": (\"$data_path/val2017\", \"$data_path/annotations/instances_val2017.json\")|\"coco_2017_val\": (\"coco/val2017\", \"coco/annotations/instances_val2017.json\")|g" $cur_path/detectron2/detectron2/data/datasets/builtin.py
 sed -i "s|WEIGHTS: \"$data_path/R-101.pkl\"|WEIGHTS: \"detectron2://ImageNetPretrained/MSRA/R-101.pkl\"|g" $cur_path/configs_yaml/faster_rcnn/faster_rcnn_R_101_FPN_3x.yaml
 wait
 #训练结束时间，不需要修改
